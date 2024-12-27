@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>localShare</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/qrcode.min.js"></script>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <h1>localShare</h1>
+        
+        <div class="server-info">
+            <div class="url-section">
+                <span>访问地址: </span>
+                <span id="serverUrl"></span>
+                <button onclick="refreshServerIP()">刷新IP</button>
+            </div>
+            <div id="qrcode"></div>
+            <div id="refreshStatus" style="color: green; margin-top: 10px;"></div> <!-- 提示信息区域 -->
+        </div>
+
+        <div class="share-section">
+            <div class="text-share">
+                <textarea id="textInput" placeholder="输入要分享的文本"></textarea>
+                <button onclick="shareText()">分享文本</button>
+            </div>
+
+            <div class="file-share">
+                <input type="file" id="fileInput" multiple>
+                <div id="selectedFiles"></div>
+                <button id="uploadButton">上传文件</button>
+                <div id="uploadProgress"></div>
+            </div>
+        </div>
+
+        <div class="history-section">
+            <div class="history-header">
+                <h2>分享历史</h2>
+                <button class="danger-button" onclick="clearAllHistory()">清空历史</button>
+            </div>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <textarea id="tempTextArea" style="position: absolute; left: -9999px;"></textarea>
+    <script src="/static/main.js"></script>
+    <script>
+        function refreshServerIP() {
+            console.log("正在尝试刷新服务器IP地址...");
+            document.getElementById('refreshStatus').textContent = '正在刷新 IP 地址...'; // 显示刷新状态
+            fetch('/api/ip')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP 错误！状态码: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("服务器返回数据:", data);
+                    if (data && data.url) {
+                        document.getElementById('serverUrl').textContent = data.url;
+
+                        // 更新二维码
+                        const qrcodeElement = document.getElementById('qrcode');
+                        qrcodeElement.innerHTML = ""; // 清空旧的二维码
+
+                        // 生成二维码，并指定固定的宽度和高度
+                        new QRCode(qrcodeElement, {
+                            text: data.url,
+                            width: 128,  // 设置二维码宽度
+                            height: 128, // 设置二维码高度
+                        });
+                        // 更新刷新状态
+                        document.getElementById('refreshStatus').textContent = 'IP 地址刷新成功!';
+                        document.getElementById('refreshStatus').style.color = 'green';
+                    } else {
+                        // 更新刷新状态
+                        document.getElementById('refreshStatus').textContent = '无法获取服务器 IP 地址';
+                        document.getElementById('refreshStatus').style.color = 'red';
+                    }
+                })
+                .catch(error => {
+                    console.error('刷新IP时发生错误:', error);
+                    // 更新刷新状态
+                    document.getElementById('refreshStatus').textContent = '刷新 IP 地址失败，请稍后重试';
+                    document.getElementById('refreshStatus').style.color = 'red';
+                });
+        }
+    </script>
+</body>
+</html>
