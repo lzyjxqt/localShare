@@ -25,17 +25,6 @@ function setupServerInfoSection() {
         serverInfoSection.style.display = 'none';
     }
 }
-function isLocalAccess() {
-    return window.location.hostname === 'localhost' || 
-           window.location.hostname === '127.0.0.1';
-}
-
-// 页面加载完成后执行
-document.addEventListener('DOMContentLoaded', function() {
-    refreshIP();
-    loadHistory();
-    setupFileUpload();
-});
 
 // 刷新IP地址和二维码
 function refreshIP() {
@@ -108,6 +97,7 @@ function setupFileUpload() {
         });
     });
 
+    // 确保事件只绑定一次
     uploadButton.addEventListener('click', function() {
         if (fileInput.files.length === 0) {
             alert('请选择要上传的文件');
@@ -146,7 +136,7 @@ function setupFileUpload() {
                 alert('上传失败');
             });
         });
-    });
+    }, { once: true }); // 添加 { once: true } 确保只绑定一次
 }
 
 // 加载历史记录
