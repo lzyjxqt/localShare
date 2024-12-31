@@ -101,18 +101,23 @@ def upload_file():
         if file.filename == "":
             return jsonify({"success": False, "message": "没有选择文件"})
         
-        # 生成唯一的文件名
-        ext = os.path.splitext(file.filename)[1]
-        saved_name = f"{uuid.uuid4()}{ext}"
-        file_path = os.path.join(UPLOAD_FOLDER, saved_name)
+        # 使用原始文件名，如果文件已存在则添加序号
+        filename = file.filename
+        base, ext = os.path.splitext(filename)
+        counter = 1
         
+        while os.path.exists(os.path.join(UPLOAD_FOLDER, filename)):
+            filename = f"{base}({counter}){ext}"
+            counter += 1
+        
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
         file.save(file_path)
         
         history.append({
             "id": str(uuid.uuid4()),
             "type": "file",
             "original_name": file.filename,
-            "saved_name": saved_name,
+            "saved_name": filename,  # 现在saved_name就是实际保存的文件名
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
         save_history()
