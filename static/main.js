@@ -97,8 +97,13 @@ function setupFileUpload() {
         });
     });
 
-    // 确保事件只绑定一次
-    uploadButton.addEventListener('click', function() {
+    // 先移除可能存在的旧事件监听器
+    uploadButton.removeEventListener('click', handleUpload);
+    // 添加新的事件监听器
+    uploadButton.addEventListener('click', handleUpload);
+
+    // 将上传处理逻辑移到单独的函数中
+    function handleUpload() {
         if (fileInput.files.length === 0) {
             alert('请选择要上传的文件');
             return;
@@ -136,7 +141,7 @@ function setupFileUpload() {
                 alert('上传失败');
             });
         });
-    }, { once: true }); // 添加 { once: true } 确保只绑定一次
+    }; // 添加 { once: true } 确保只绑定一次
 }
 
 // 加载历史记录
