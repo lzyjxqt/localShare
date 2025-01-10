@@ -97,51 +97,92 @@ function setupFileUpload() {
         });
     });
 
-    // 先移除可能存在的旧事件监听器
     uploadButton.removeEventListener('click', handleUpload);
-    // 添加新的事件监听器
     uploadButton.addEventListener('click', handleUpload);
 
-    // 将上传处理逻辑移到单独的函数中
     function handleUpload() {
         if (fileInput.files.length === 0) {
             alert('请选择要上传的文件');
             return;
         }
 
-        const totalFiles = fileInput.files.length;
+        const files = Array.from(fileInput.files);
+        const totalFiles = files.length;
         let uploadedFiles = 0;
-        uploadProgress.innerHTML = `上传进度: 0/${totalFiles}`;
+        
+        // 创建进度显示容器
+        uploadProgress.innerHTML = '';
+        const progressBars = {};
+        
+        files.forEach(file => {
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'file-progress';
+            progressDiv.innerHTML = `
+                <div>${file.name}: <span class="progress-text">0%</span></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            `;
+            uploadProgress.appendChild(progressDiv);
+            progressBars[file.name] = {
+                text: progressDiv.querySelector('.progress-text'),
+                fill: progressDiv.querySelector('.progress-fill')
+            };
+        });
 
-        Array.from(fileInput.files).forEach(file => {
+        // 并发上传，最多同时上传3个文件
+        const concurrentUploads = 3;
+        let currentIndex = 0;
+
+        function uploadNext() {
+            if (currentIndex >= files.length) return;
+            
+            const file = files[currentIndex++];
             const formData = new FormData();
             formData.append('file', file);
 
-            fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
+            const xhr = new XMLHttpRequest();
+            
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = Math.round((e.loaded / e.total) * 100);
+                    progressBars[file.name].text.textContent = percentComplete + '%';
+                    progressBars[file.name].fill.style.width = percentComplete + '%';
+                }
+            };
+
+            xhr.onload = function() {
                 uploadedFiles++;
-                uploadProgress.innerHTML = `上传进度: ${uploadedFiles}/${totalFiles}`;
-                
                 if (uploadedFiles === totalFiles) {
                     fileInput.value = '';
                     selectedFiles.innerHTML = '';
-                    uploadProgress.innerHTML = '上传完成';
                     setTimeout(() => {
-                        uploadProgress.innerHTML = '';
-                    }, 3000);
+                        uploadProgress.innerHTML = '上传完成';
+                        setTimeout(() => {
+                            uploadProgress.innerHTML = '';
+                        }, 3000);
+                    }, 1000);
                     loadHistory();
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('上传失败');
-            });
-        });
-    }; // 添加 { once: true } 确保只绑定一次
+                // 继续上传下一个文件
+                uploadNext();
+            };
+
+            xhr.onerror = function() {
+                console.error('Upload failed for:', file.name);
+                alert(`上传失败: ${file.name}`);
+                uploadNext(); // 即使失败也继续上传下一个
+            };
+
+            xhr.open('POST', '/api/upload', true);
+            xhr.send(formData);
+        }
+
+        // 启动初始的并发上传
+        for (let i = 0; i < Math.min(concurrentUploads, files.length); i++) {
+            uploadNext();
+        }
+    }
 }
 
 // 加载历史记录
