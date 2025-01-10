@@ -1,3 +1,8 @@
+// 轮询相关变量
+let pollingInterval = null; // 轮询定时器
+let lastHistoryLength = 0; // 上次历史记录长度
+let isUploading = false; // 是否正在上传文件
+
 // 检查是否为移动端
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -15,7 +20,46 @@ document.addEventListener('DOMContentLoaded', function() {
     refreshIP();
     loadHistory();
     setupFileUpload();
+    startPolling(); // 启动轮询
 });
+
+// 轮询控制函数
+function startPolling() {
+    // 如果已经在轮询中，先停止
+    stopPolling();
+    // 每5秒检查一次历史记录
+    pollingInterval = setInterval(checkForUpdates, 1500);
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
+// 检查更新函数
+function checkForUpdates() {
+    // 如果正在上传文件，跳过这次检查
+    if (isUploading) {
+        return;
+    }
+
+    fetch('/api/history')
+        .then(response => response.json())
+        .then(history => {
+            // 如果历史记录数量发生变化，说明有更新
+            if (history.length !== lastHistoryLength) {
+                loadHistory();
+                lastHistoryLength = history.length;
+            }
+        })
+        .catch(error => {
+            console.error('检查更新失败:', error);
+            // 如果发生错误，停止轮询
+            stopPolling();
+        });
+}
 
 // 设置"二维码和访问地址"部分的显示状态
 function setupServerInfoSection() {
@@ -106,6 +150,7 @@ function setupFileUpload() {
             return;
         }
 
+        isUploading = true; // 标记开始上传
         const files = Array.from(fileInput.files);
         const totalFiles = files.length;
         let uploadedFiles = 0;
@@ -163,14 +208,17 @@ function setupFileUpload() {
                         }, 3000);
                     }, 1000);
                     loadHistory();
+                    isUploading = false; // 标记上传完成
                 }
-                // 继续上传下一个文件
                 uploadNext();
             };
 
             xhr.onerror = function() {
                 console.error('Upload failed for:', file.name);
                 alert(`上传失败: ${file.name}`);
+                if (uploadedFiles === totalFiles) {
+                    isUploading = false; // 确保在所有文件处理完后标记上传完成
+                }
                 uploadNext(); // 即使失败也继续上传下一个
             };
 
@@ -190,6 +238,7 @@ function loadHistory() {
     fetch('/api/history')
         .then(response => response.json())
         .then(history => {
+            lastHistoryLength = history.length; // 更新历史记录长度
             const historyList = document.getElementById('historyList');
             historyList.innerHTML = '';
             
