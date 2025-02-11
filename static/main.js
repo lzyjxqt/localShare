@@ -27,8 +27,8 @@ document.addEventListener('DOMContentLoaded', function() {
 function startPolling() {
     // 如果已经在轮询中，先停止
     stopPolling();
-    // 每5秒检查一次历史记录
-    pollingInterval = setInterval(checkForUpdates, 1500);
+    // 每2秒检查一次历史记录
+    pollingInterval = setInterval(checkForUpdates, 2000);
 }
 
 function stopPolling() {
@@ -56,16 +56,14 @@ function checkForUpdates() {
         })
         .catch(error => {
             console.error('检查更新失败:', error);
-            // 如果发生错误，停止轮询
             stopPolling();
         });
 }
 
 // 设置"二维码和访问地址"部分的显示状态
 function setupServerInfoSection() {
-    const serverInfoSection = document.querySelector('.server-info'); // 选择"二维码和访问地址"部分
+    const serverInfoSection = document.querySelector('.server-info');
     if (!isLocalAccess()) {
-        // 如果不是本机访问，隐藏整个部分
         serverInfoSection.style.display = 'none';
     }
 }
@@ -118,11 +116,43 @@ function shareText() {
 
 // 复制文本到剪贴板
 function copyText(text) {
-    const tempTextArea = document.getElementById('tempTextArea');
-    tempTextArea.value = text;
-    tempTextArea.select();
-    document.execCommand('copy');
-    alert('已复制到剪贴板');
+    // 使用 navigator.clipboard API (现代浏览器)
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+            .then(() => alert('已复制到剪贴板'))
+            .catch(err => {
+        console.error('复制失败:', err);
+                fallbackCopyText(text);
+            });
+                } else {
+        fallbackCopyText(text);
+        }
+}
+
+// 复制文本的后备方法
+function fallbackCopyText(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '-9999px';
+    document.body.appendChild(textArea);
+    
+    try {
+        textArea.select();
+        textArea.setSelectionRange(0, 99999);
+        const successful = document.execCommand('copy');
+        if (successful) {
+            alert('已复制到剪贴板');
+                } else {
+            throw new Error('复制命令执行失败');
+        }
+    } catch (err) {
+        console.error('复制失败:', err);
+        alert('复制失败，请手动复制');
+    } finally {
+        document.body.removeChild(textArea);
+    }
 }
 
 // 设置文件上传相关功能
@@ -134,102 +164,109 @@ function setupFileUpload() {
 
     fileInput.addEventListener('change', function() {
         selectedFiles.innerHTML = '';
-        Array.from(this.files).forEach(file => {
-            const div = document.createElement('div');
-            div.textContent = `${file.name} (${formatFileSize(file.size)})`;
-            selectedFiles.appendChild(div);
-        });
+        if (this.files.length > 0) {
+            Array.from(this.files).forEach(file => {
+                const div = document.createElement('div');
+                div.textContent = `${file.name} (${formatFileSize(file.size)})`;
+                selectedFiles.appendChild(div);
+            });
+            uploadButton.style.display = 'block';
+        } else {
+            uploadButton.style.display = 'none';
+        }
     });
 
-    uploadButton.removeEventListener('click', handleUpload);
     uploadButton.addEventListener('click', handleUpload);
+}
 
-    function handleUpload() {
-        if (fileInput.files.length === 0) {
-            alert('请选择要上传的文件');
-            return;
-        }
+// 处理文件上传
+function handleUpload() {
+    const fileInput = document.getElementById('fileInput');
+    const selectedFiles = document.getElementById('selectedFiles');
+    const uploadProgress = document.getElementById('uploadProgress');
 
-        isUploading = true; // 标记开始上传
-        const files = Array.from(fileInput.files);
-        const totalFiles = files.length;
-        let uploadedFiles = 0;
+    if (fileInput.files.length === 0) {
+        alert('请选择要上传的文件');
+        return;
+    }
+    
+    isUploading = true;
+    const files = Array.from(fileInput.files);
+    const totalFiles = files.length;
+    let uploadedFiles = 0;
+    
+    uploadProgress.innerHTML = '';
+    const progressBars = {};
+    
+    files.forEach(file => {
+        const progressDiv = document.createElement('div');
+        progressDiv.className = 'file-progress';
+        progressDiv.innerHTML = `
+            <div>${file.name}: <span class="progress-text">0%</span></div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 0%"></div>
+            </div>
+        `;
+        uploadProgress.appendChild(progressDiv);
+        progressBars[file.name] = {
+            text: progressDiv.querySelector('.progress-text'),
+            fill: progressDiv.querySelector('.progress-fill')
+        };
+    });
+
+    const concurrentUploads = 3;
+    let currentIndex = 0;
+
+    function uploadNext() {
+        if (currentIndex >= files.length) return;
         
-        // 创建进度显示容器
-        uploadProgress.innerHTML = '';
-        const progressBars = {};
+        const file = files[currentIndex++];
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
         
-        files.forEach(file => {
-            const progressDiv = document.createElement('div');
-            progressDiv.className = 'file-progress';
-            progressDiv.innerHTML = `
-                <div>${file.name}: <span class="progress-text">0%</span></div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 0%"></div>
-                </div>
-            `;
-            uploadProgress.appendChild(progressDiv);
-            progressBars[file.name] = {
-                text: progressDiv.querySelector('.progress-text'),
-                fill: progressDiv.querySelector('.progress-fill')
-            };
-        });
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const percentComplete = Math.round((e.loaded / e.total) * 100);
+                progressBars[file.name].text.textContent = percentComplete + '%';
+                progressBars[file.name].fill.style.width = percentComplete + '%';
+            }
+        };
 
-        // 并发上传，最多同时上传3个文件
-        const concurrentUploads = 3;
-        let currentIndex = 0;
-
-        function uploadNext() {
-            if (currentIndex >= files.length) return;
-            
-            const file = files[currentIndex++];
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const xhr = new XMLHttpRequest();
-            
-            xhr.upload.onprogress = function(e) {
-                if (e.lengthComputable) {
-                    const percentComplete = Math.round((e.loaded / e.total) * 100);
-                    progressBars[file.name].text.textContent = percentComplete + '%';
-                    progressBars[file.name].fill.style.width = percentComplete + '%';
-                }
-            };
-
-            xhr.onload = function() {
-                uploadedFiles++;
-                if (uploadedFiles === totalFiles) {
-                    fileInput.value = '';
-                    selectedFiles.innerHTML = '';
+        xhr.onload = function() {
+            uploadedFiles++;
+            if (uploadedFiles === totalFiles) {
+                fileInput.value = '';
+                selectedFiles.innerHTML = '';
+                uploadButton.style.display = 'none';
+                setTimeout(() => {
+                    uploadProgress.innerHTML = '上传完成';
                     setTimeout(() => {
-                        uploadProgress.innerHTML = '上传完成';
-                        setTimeout(() => {
-                            uploadProgress.innerHTML = '';
-                        }, 3000);
-                    }, 1000);
-                    loadHistory();
-                    isUploading = false; // 标记上传完成
-                }
-                uploadNext();
-            };
-
-            xhr.onerror = function() {
-                console.error('Upload failed for:', file.name);
-                alert(`上传失败: ${file.name}`);
-                if (uploadedFiles === totalFiles) {
-                    isUploading = false; // 确保在所有文件处理完后标记上传完成
-                }
-                uploadNext(); // 即使失败也继续上传下一个
-            };
-
-            xhr.open('POST', '/api/upload', true);
-            xhr.send(formData);
+                        uploadProgress.innerHTML = '';
+                    }, 3000);
+                }, 1000);
+            loadHistory();
+                isUploading = false;
         }
-
-        // 启动初始的并发上传
-        for (let i = 0; i < Math.min(concurrentUploads, files.length); i++) {
             uploadNext();
-        }
+        };
+
+        xhr.onerror = function() {
+            console.error('Upload failed for:', file.name);
+            alert(`上传失败: ${file.name}`);
+            if (uploadedFiles === totalFiles) {
+                isUploading = false;
+}
+            uploadNext();
+        };
+
+        xhr.open('POST', '/api/upload', true);
+        xhr.send(formData);
+    }
+
+    for (let i = 0; i < Math.min(concurrentUploads, files.length); i++) {
+        uploadNext();
     }
 }
 
@@ -238,7 +275,7 @@ function loadHistory() {
     fetch('/api/history')
         .then(response => response.json())
         .then(history => {
-            lastHistoryLength = history.length; // 更新历史记录长度
+            lastHistoryLength = history.length;
             const historyList = document.getElementById('historyList');
             historyList.innerHTML = '';
             
@@ -249,39 +286,99 @@ function loadHistory() {
                 div.className = 'history-item';
                 
                 if (item.type === 'text') {
-                    div.innerHTML = `
-                        <div class="history-item-content">
-                            <div class="history-item-time">${item.time}</div>
-                            <div class="history-item-text">${item.content}</div>
-                        </div>
-                        <div class="history-item-buttons">
-                            <button onclick="copyText('${item.content.replace(/'/g, "\\'")}')">复制</button>
-                            <button class="delete-button" onclick="deleteHistory('${item.id}')">删除</button>
-                        </div>
-                    `;
+                    // 创建文本内容容器
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'history-item-content';
+                    
+                    // 创建时间显示
+                    const timeDiv = document.createElement('div');
+                    timeDiv.className = 'history-item-time';
+                    timeDiv.textContent = item.time;
+                    
+                    // 创建文本内容显示
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'history-item-text';
+                    textDiv.style.whiteSpace = 'pre-wrap';
+                    textDiv.textContent = item.content;
+                    
+                    contentDiv.appendChild(timeDiv);
+                    contentDiv.appendChild(textDiv);
+                    
+                    // 创建按钮容器
+                    const buttonsDiv = document.createElement('div');
+                    buttonsDiv.className = 'history-item-buttons';
+                    
+                    // 创建复制按钮
+                    const copyButton = document.createElement('button');
+                    copyButton.textContent = '复制';
+                    copyButton.onclick = () => copyText(item.content);
+                    
+                    // 创建删除按钮
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = '删除';
+                    deleteButton.className = 'delete-button';
+                    deleteButton.onclick = () => deleteHistory(item.id);
+                    
+                    buttonsDiv.appendChild(copyButton);
+                    buttonsDiv.appendChild(deleteButton);
+                    
+                    div.appendChild(contentDiv);
+                    div.appendChild(buttonsDiv);
                 } else {
-                    let buttons = `
-                        <button onclick="window.open('/uploads/${item.saved_name}', '_blank')">下载</button>
-                        <button class="delete-button" onclick="deleteHistory('${item.id}')">删除</button>
-                    `;
+                    // 创建文件内容容器
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'history-item-content';
+                    
+                    // 创建时间显示
+                    const timeDiv = document.createElement('div');
+                    timeDiv.className = 'history-item-time';
+                    timeDiv.textContent = item.time;
+                    
+                    // 创建文件名显示
+                    const filenameDiv = document.createElement('div');
+                    filenameDiv.className = 'history-item-filename';
+                    filenameDiv.textContent = item.original_name;
+                    
+                    contentDiv.appendChild(timeDiv);
+                    contentDiv.appendChild(filenameDiv);
+                    
+                    // 创建按钮容器
+                    const buttonsDiv = document.createElement('div');
+                    buttonsDiv.className = 'history-item-buttons';
                     
                     if (showLocalButtons) {
-                        buttons = `
-                            <button class="open-local-only" onclick="openFile('${item.saved_name}')">打开</button>
-                            <button class="open-local-only" onclick="openFolder('${item.saved_name}')">跳转</button>
-                            ${buttons}
-                        `;
+                        // 创建打开按钮
+                        const openButton = document.createElement('button');
+                        openButton.textContent = '打开';
+                        openButton.className = 'open-local-only';
+                        openButton.onclick = () => openFile(item.saved_name);
+                        
+                        // 创建跳转按钮
+                        const folderButton = document.createElement('button');
+                        folderButton.textContent = '跳转';
+                        folderButton.className = 'open-local-only';
+                        folderButton.onclick = () => openFolder(item.saved_name);
+                        
+                        buttonsDiv.appendChild(openButton);
+                        buttonsDiv.appendChild(folderButton);
                     }
                     
-                    div.innerHTML = `
-                        <div class="history-item-content">
-                            <div class="history-item-time">${item.time}</div>
-                            <div class="history-item-filename">${item.original_name}</div>
-                        </div>
-                        <div class="history-item-buttons">
-                            ${buttons}
-                        </div>
-                    `;
+                    // 创建下载按钮
+                    const downloadButton = document.createElement('button');
+                    downloadButton.textContent = '下载';
+                    downloadButton.onclick = () => window.open('/uploads/' + item.saved_name, '_blank');
+                    
+                    // 创建删除按钮
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = '删除';
+                    deleteButton.className = 'delete-button';
+                    deleteButton.onclick = () => deleteHistory(item.id);
+                    
+                    buttonsDiv.appendChild(downloadButton);
+                    buttonsDiv.appendChild(deleteButton);
+                    
+                    div.appendChild(contentDiv);
+                    div.appendChild(buttonsDiv);
                 }
                 
                 historyList.appendChild(div);
